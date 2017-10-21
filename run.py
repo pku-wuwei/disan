@@ -14,7 +14,7 @@ import time
 from current_model import Config
 from current_model import Model
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 vocab = {}
 
 def get_word_and_char(sentence):
@@ -97,11 +97,12 @@ if __name__ == '__main__':
         losses = []
         show_time = time.time()
         best_dev_acc = 0
+        total_steps = len(train_data)/Config.batch_size
         for step,batch_train in enumerate(batch_trains):
             batch_loss = model.train_batch(sess, batch_train)
             sys.stdout.write("\rstep:{}\t\t\tloss:{}".format(step, batch_loss))
             losses.append(batch_loss)
-            display_step = 2000 if step<40000 else 500
+            display_step = int(total_steps/5) if step<3*total_steps else int(total_steps/10)
             if step % display_step ==0:
                 sys.stdout.write('\rstep:{}\t\taverage_loss:{}\n'.format(step, sum(losses)/len(losses)))
                 losses = []

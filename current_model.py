@@ -3,6 +3,7 @@
 # v1.1 better reusing
 # v1.2 solve full gpu memory
 # v1.3 using paper setting, add saver
+# v1.4 actually reduce gpu memory use, looking to original implementation
 import tensorflow as tf
 import numpy as np
 
@@ -41,13 +42,12 @@ def token2token(sent_hidden, sent_mask, is_forward, keep_prob):
         length_mask_tile = tf.tile(tf.expand_dims(tf.squeeze(tf.cast(sent_mask,tf.bool),-1), 1), [1, sl, 1])             # [b,1,n] -> [b,n,n]
         attention_mask = tf.cast(tf.logical_and(direction_mask_tile, length_mask_tile), tf.float32)         # [b,n,n]
 
-        matching_col = tf.tile(tf.expand_dims(sent_hidden, 1), [1, sl, 1, 1])             # [b,1,n,d] -> [b,n,n,d]
-        matching_row = tf.tile(tf.expand_dims(sent_hidden, 2), [1, 1, sl, 1])             # [b,n,1,d] -> [b,n,n,d]
-        matching_logit = 5.0 * dense(tf.concat([matching_col, matching_row], 3)/5.0, Config.hidden_size, tf.tanh, 1.0, 'matching_logit')     # [b,n,n,d]
+        head = tf.expand_dims(dense(sent_hidden, Config.hidden_size, tf.identity, 1.0, 'head'),1) # [b,1,n,d]
+        tail = tf.expand_dims(dense(sent_hidden, Config.hidden_size, tf.identity, 1.0, 'tail'),2) # [b,n,1,d]
+        matching_logit = 5.0*tf.tanh((head+tail)/5.0) + tf.expand_dims(1-attention_mask, -1) * (-1e30)     # [b,n,n,d]
 
-        matching_logit += tf.expand_dims(1-attention_mask, -1) * (-1e30)               # [b,n,n,d]
-        attention_score = tf.nn.softmax(matching_logit, 2) * tf.expand_dims(attention_mask, -1)    # [b,n,n,d]
-        compare_result = tf.reduce_sum(attention_score * matching_col, 2)                                   # [b,n,d]
+        attention_score = tf.nn.softmax(matching_logit, 2) * tf.expand_dims(attention_mask, -1)     # [b,n,n,d]
+        compare_result = tf.reduce_sum(attention_score * tf.expand_dims(sent_hidden ,1), 2)         # [b,n,d]
 
         fusion_gate = dense(tf.concat([sent_hidden, compare_result], 2), Config.hidden_size, tf.sigmoid, keep_prob, 'fusion_gate')  # [b,n,d]
         return (fusion_gate*sent_hidden + (1-fusion_gate)*compare_result) * sent_mask   # [b,n,d]
@@ -104,7 +104,7 @@ class Model(object):
                 self.q_disan = disan(self.q_inp, self.q_mask, self.dropout)
 
             with tf.variable_scope("loss"):
-                l0 = tf.concat([self.p_disan, self.q_disan], 1)
+                l0 = tf.concat([self.p_disan, self.q_disan, self.p_disan-self.q_disan, self.p_disan*self.q_disan], 1)
                 l1 = dense(l0, Config.hidden_size, tf.nn.elu, self.dropout, 'l1')
                 l2 = dense(l1, Config.hidden_size, tf.nn.elu, self.dropout, 'l2')
                 self.logits = dense(l2, 3, tf.identity, 1.0, 'logits')
