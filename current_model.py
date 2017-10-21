@@ -1,6 +1,8 @@
 # coding: utf-8
+# v1.0 first usable
 # v1.1 better reusing
 # v1.2 solve full gpu memory
+# v1.3 using paper setting, add saver
 import tensorflow as tf
 import numpy as np
 
@@ -8,23 +10,20 @@ import numpy as np
 class Config(object):
     word2vec_init   = True
     word2vec_size   = 300
-    char_embed = 15
-    char_hidden = 100
     hidden_size = 300
     batch_size = 30
-    learning_rate = 3e-5
-    l2_weight = 1e-7
-    penal_weight = 1e-4
-    dropout = 1.0
+    learning_rate = 0.5
+    l2_weight = 5e-5
+    dropout = 0.75
+    max_sent = 100
+    max_word = 20
+    label_list = ['entailment','neutral','contradiction']
+    restore = False
+
+    char_embed = 15
+    char_hidden = 100
     max_grad = 10
     grad_noise = 0.01
-    num_classes = 3
-    perspectives = 50
-    max_sent = 300
-    max_word = 20
-    filter_sizes = [1,3,5]
-    label_list = ['entailment','neutral','contradiction']
-
 
 # sent_hidden:[b,n,d]  sent_mask:[b,n,1]
 def disan(sent_hidden, sent_mask, keep_prob):
@@ -110,16 +109,9 @@ class Model(object):
                 l2 = dense(l1, Config.hidden_size, tf.nn.elu, self.dropout, 'l2')
                 self.logits = dense(l2, 3, tf.identity, 1.0, 'logits')
                 self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=tf.one_hot(self.labels,3,dtype=tf.float32), logits=self.logits),-1)
-                # self.loss = tf.losses.softmax_cross_entropy(tf.one_hot(self.labels,3,dtype=tf.float32), self.logits)
-                self.train_op = tf.train.AdamOptimizer(Config.learning_rate).minimize(self.loss)
-
-            # global_step = tf.Variable(0, trainable=False)
-            # learning_rate = tf.train.exponential_decay(Config.learning_rate, global_step, 3000, 0.8, staircase=True)
-            # opt = tf.train.AdamOptimizer(learning_rate)
-            # gvs = opt.compute_gradients(self.loss)
-            # gvs = [(tf.clip_by_norm(grad,Config.max_grad), val) for grad,val in gvs]
-            # gvs = [(tf.add(grad, tf.random_normal(tf.shape(grad),stddev=Config.grad_noise)), val) for grad,val in gvs]
-            # self.train_op = opt.apply_gradients(gvs)
+                for v in tf.trainable_variables():
+                    self.loss += Config.l2_weight * tf.nn.l2_loss(v)
+                self.train_op = tf.train.AdadeltaOptimizer(Config.learning_rate).minimize(self.loss)
 
     def train_batch(self, sess, batch_data):
         p_words, q_words, p_chars, q_chars, labels = batch_data

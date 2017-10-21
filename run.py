@@ -88,15 +88,20 @@ if __name__ == '__main__':
         model.build_model()
         for v in tf.trainable_variables():
             print('name:{}\tshape:{}'.format(v.name,v.shape))
+        tf.set_random_seed(1123)
         tf.global_variables_initializer().run()
+        saver = tf.train.Saver([v for v in tf.global_variables()])
+        if Config.restore and len([v for v in os.listdir('weights/') if '.index' in v]):
+            saver.restore(sess, tf.train.latest_checkpoint('weights/'))
         batch_trains = batch_iter(train_data,Config.batch_size,True,True)
         losses = []
         show_time = time.time()
+        best_dev_acc = 0
         for step,batch_train in enumerate(batch_trains):
             batch_loss = model.train_batch(sess, batch_train)
             sys.stdout.write("\rstep:{}\t\t\tloss:{}".format(step, batch_loss))
             losses.append(batch_loss)
-            display_step = 100 if step<4000 else 100
+            display_step = 2000 if step<40000 else 500
             if step % display_step ==0:
                 sys.stdout.write('\rstep:{}\t\taverage_loss:{}\n'.format(step, sum(losses)/len(losses)))
                 losses = []
@@ -107,6 +112,9 @@ if __name__ == '__main__':
                     dev_true += model.test_batch(sess, batch_dev)
                 for batch_test in batch_tests:
                     test_true += model.test_batch(sess, batch_test)
-                print('dev_acc:{}\t\ttest_acc:{}\t\tshow_time:{}'.format(dev_true/len(dev_data), test_true/len(test_data), time.time()-show_time))
+                dev_acc, test_acc= dev_true/len(dev_data), test_true/len(test_data)
+                print('dev_acc:{}\t\ttest_acc:{}\t\tshow_time:{}'.format(dev_acc, test_acc, time.time()-show_time))
+                if dev_acc > best_dev_acc:
+                    saver.save(sess, 'weights/best', step)
                 show_time = time.time()
 
