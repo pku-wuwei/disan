@@ -14,6 +14,7 @@ import time
 from current_model import Config
 from current_model import Model
 
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 vocab = {}
 
 def get_word_and_char(sentence):
