@@ -4,6 +4,7 @@
 # v1.2 solve full gpu memory
 # v1.3 using paper setting, add saver
 # v1.4 actually reduce gpu memory use, looking to original implementation
+# v1.5 even more like original implementation
 import tensorflow as tf
 import numpy as np
 
@@ -12,36 +13,38 @@ class Config(object):
     word2vec_init   = True
     word2vec_size   = 300
     hidden_size = 300
-    batch_size = 30
+    batch_size = 32
     learning_rate = 0.5
     l2_weight = 5e-5
     dropout = 0.75
-    max_sent = 100
+    max_sent = 150
     max_word = 20
     label_list = ['entailment','neutral','contradiction']
     restore = False
+    gpu_id = 0
 
     char_embed = 15
     char_hidden = 100
     max_grad = 10
     grad_noise = 0.01
 
-# sent_hidden:[b,n,d]  sent_mask:[b,n,1]
-def disan(sent_hidden, sent_mask, keep_prob):
-    fw_encoding = token2token(sent_hidden * sent_mask, sent_mask, True, keep_prob)     # [b,n,d]
-    bw_encoding = token2token(sent_hidden * sent_mask, sent_mask, False, keep_prob)
+# sent_emb:[b,n,d]  sent_mask:[b,n,1]
+def disan(sent_emb, sent_mask, keep_prob):
+    fw_encoding = token2token(sent_emb * sent_mask, sent_mask, True, keep_prob)     # [b,n,d]
+    bw_encoding = token2token(sent_emb * sent_mask, sent_mask, False, keep_prob)
     sent_encoding = tf.concat([fw_encoding, bw_encoding], 2)
     return source2token(sent_encoding, sent_mask, keep_prob)            # [b,d]
 
-def token2token(sent_hidden, sent_mask, is_forward, keep_prob):
+def token2token(sent_emb, sent_mask, is_forward, keep_prob):
     with tf.variable_scope('forward' if is_forward else 'backward'):
-        bs, sl = tf.shape(sent_hidden)[0], tf.shape(sent_hidden)[1]
+        bs, sl = tf.shape(sent_emb)[0], tf.shape(sent_emb)[1]
         col, row = tf.meshgrid(tf.range(sl), tf.range(sl))            # [n,n]
         direction_mask = tf.greater(row, col) if is_forward else tf.greater(col, row)                       # [n,n]
         direction_mask_tile = tf.tile(tf.expand_dims(direction_mask, 0), [bs, 1, 1])     # [b,n,n]
         length_mask_tile = tf.tile(tf.expand_dims(tf.squeeze(tf.cast(sent_mask,tf.bool),-1), 1), [1, sl, 1])             # [b,1,n] -> [b,n,n]
         attention_mask = tf.cast(tf.logical_and(direction_mask_tile, length_mask_tile), tf.float32)         # [b,n,n]
 
+        sent_hidden = dense(sent_emb, Config.hidden_size, tf.nn.elu, keep_prob, 'hidden') * sent_mask   # [b,n,d]
         head = tf.expand_dims(dense(sent_hidden, Config.hidden_size, tf.identity, 1.0, 'head'),1) # [b,1,n,d]
         tail = tf.expand_dims(dense(sent_hidden, Config.hidden_size, tf.identity, 1.0, 'tail'),2) # [b,n,1,d]
         matching_logit = 5.0*tf.tanh((head+tail)/5.0) + tf.expand_dims(1-attention_mask, -1) * (-1e30)     # [b,n,n,d]
@@ -88,20 +91,14 @@ class Model(object):
             self.labels = tf.placeholder(tf.int32, [None])                          # (b,)
 
             with tf.device('/cpu:0'):
-                self.embed_matrix = tf.convert_to_tensor(self.word_embedding,dtype=tf.float32)
+                self.embed_matrix = tf.Variable(self.word_embedding, name='embedding', dtype=tf.float32)
                 self.p_emb = tf.nn.embedding_lookup(self.embed_matrix, self.p_words)      # (b,m,l)
                 self.q_emb = tf.nn.embedding_lookup(self.embed_matrix, self.q_words)      # (b,n,l)
 
-            with tf.variable_scope("embedding") as scope:
-                self.p_inp = dense(self.p_emb, Config.hidden_size, tf.nn.elu, self.dropout, 'hidden')   # [b,n,d]
-                scope.reuse_variables()
-                self.q_inp = dense(self.q_emb, Config.hidden_size, tf.nn.elu, self.dropout, 'hidden')   # [b,n,d]
-
-
             with tf.variable_scope("disan") as scope:
-                self.p_disan = disan(self.p_inp, self.p_mask, self.dropout)
+                self.p_disan = disan(self.p_emb, self.p_mask, self.dropout)
                 scope.reuse_variables()
-                self.q_disan = disan(self.q_inp, self.q_mask, self.dropout)
+                self.q_disan = disan(self.q_emb, self.q_mask, self.dropout)
 
             with tf.variable_scope("loss"):
                 l0 = tf.concat([self.p_disan, self.q_disan, self.p_disan-self.q_disan, self.p_disan*self.q_disan], 1)

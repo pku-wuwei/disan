@@ -14,7 +14,7 @@ import time
 from current_model import Config
 from current_model import Model
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = str(3-Config.gpu_id)
 vocab = {}
 
 def get_word_and_char(sentence):
@@ -33,7 +33,7 @@ def digitize_data(fname):
             p_word, p_char = get_word_and_char(p_string)
             q_word, q_char = get_word_and_char(q_string)
             tasks.append([p_word, p_char, q_word, q_char, Config.label_list.index(label)])
-    print('loading {}:\tsize:{}\ttime:{}'.format(fname, len(tasks),time.time()-start_time))
+    print('loading {}:\tsize:{}\ttime:{}'.format(fname, len(tasks), time.time()-start_time))
     return tasks
 
 
@@ -90,7 +90,7 @@ if __name__ == '__main__':
             print('name:{}\tshape:{}'.format(v.name,v.shape))
         tf.set_random_seed(1123)
         tf.global_variables_initializer().run()
-        saver = tf.train.Saver([v for v in tf.global_variables()])
+        saver = tf.train.Saver()
         if Config.restore and len([v for v in os.listdir('weights/') if '.index' in v]):
             saver.restore(sess, tf.train.latest_checkpoint('weights/'))
         batch_trains = batch_iter(train_data,Config.batch_size,True,True)
@@ -102,7 +102,7 @@ if __name__ == '__main__':
             batch_loss = model.train_batch(sess, batch_train)
             sys.stdout.write("\rstep:{}\t\t\tloss:{}".format(step, batch_loss))
             losses.append(batch_loss)
-            display_step = int(total_steps/5) if step<3*total_steps else int(total_steps/10)
+            display_step = int(total_steps/3) if step<6*total_steps else int(total_steps/6)
             if step % display_step ==0:
                 sys.stdout.write('\rstep:{}\t\taverage_loss:{}\n'.format(step, sum(losses)/len(losses)))
                 losses = []
