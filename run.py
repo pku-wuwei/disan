@@ -27,12 +27,14 @@ def get_word_and_char(sentence):
 def digitize_data(fname):
     tasks = []
     start_time = time.time()
-    with open('data/' + fname + '.txt') as fi:
+    with open(Config.dataset + '/' + fname + '.txt') as fi:
         for line in fi:
             label, p_string, q_string = line.strip().split('\t')
             p_word, p_char = get_word_and_char(p_string)
             q_word, q_char = get_word_and_char(q_string)
-            tasks.append([p_word, p_char, q_word, q_char, Config.label_list.index(label)])
+            if not(Config.dataset == 'semeval2017' and fname != 'train'):
+                label = Config.label_list.index(label)
+            tasks.append([p_word, p_char, q_word, q_char, label])
     print('loading {}:\tsize:{}\ttime:{}'.format(fname, len(tasks), time.time()-start_time))
     return tasks
 
@@ -69,7 +71,7 @@ if __name__ == '__main__':
 
     embedding = []
     start_time = time.time()
-    with open('data/embedding.txt') as fe:
+    with open(Config.dataset + '/embedding.txt') as fe:
         for i, line in enumerate(fe):
             items = line.split()
             vocab[items[0]]= i
@@ -98,6 +100,19 @@ if __name__ == '__main__':
         show_time = time.time()
         best_dev_acc = 0
         total_steps = len(train_data)/Config.batch_size
+        
+        def get_result(data, type='dev'):
+            batchs = batch_iter(data, Config.batch_size, False, False)
+            predict = '' if Config.dataset == 'semeval2017' else 0
+            for batch in batchs:
+                predict += model.test_batch(sess, batch)
+            if Config.dataset == 'semeval2017':
+                with open('scorer/predict_'+type, 'w') as fw:
+                    fw.write(predict)
+                result = os.popen('python2 scorer/ev.py scorer/gold_{} scorer/predict_{}'.format(type,type)).readlines()[1].strip()[-6:]
+            return float(result) if Config.dataset=='semeval2017' else predict/len(data)
+
+
         for step,batch_train in enumerate(batch_trains):
             batch_loss = model.train_batch(sess, batch_train)
             sys.stdout.write("\repoch:{:.5f}\t\t\tloss:{}".format(step/total_steps, batch_loss))
@@ -106,16 +121,10 @@ if __name__ == '__main__':
             if step % display_step ==0:
                 sys.stdout.write('\repoch:{:.5f}\t\taverage_loss:{}\n'.format(step/total_steps, sum(losses)/len(losses)))
                 losses = []
-                test_true = dev_true = 0
-                batch_devs = batch_iter(dev_data,Config.batch_size,False,False)
-                batch_tests = batch_iter(test_data,Config.batch_size,False,False)
-                for batch_dev in batch_devs:
-                    dev_true += model.test_batch(sess, batch_dev)
-                for batch_test in batch_tests:
-                    test_true += model.test_batch(sess, batch_test)
-                dev_acc, test_acc= dev_true/len(dev_data), test_true/len(test_data)
+                dev_acc, test_acc = get_result(dev_data, 'dev'), get_result(test_data, 'test')
                 print('dev_acc:{}\t\ttest_acc:{}\t\tshow_time:{}'.format(dev_acc, test_acc, time.time()-show_time))
-                if dev_acc > best_dev_acc:
+                if (dev_acc > best_dev_acc) and (step > 3*total_steps):
+                    best_dev_acc = dev_acc
                     saver.save(sess, 'weights/best', step)
                 show_time = time.time()
 

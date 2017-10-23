@@ -5,6 +5,7 @@
 # v1.3 using paper setting, add saver
 # v1.4 actually reduce gpu memory use, looking to original implementation
 # v1.5 even more like original implementation
+# v1.6 merge semeval2017 with snli
 import tensorflow as tf
 import numpy as np
 
@@ -13,20 +14,21 @@ class Config(object):
     word2vec_init   = True
     word2vec_size   = 300
     hidden_size = 300
-    batch_size = 32
     learning_rate = 0.5
     l2_weight = 5e-5
     dropout = 0.75
     max_sent = 150
     max_word = 20
-    label_list = ['entailment','neutral','contradiction']
     restore = False
     gpu_id = 3
+    batch_size = 32
+    dataset = 'snli'
+    if dataset == 'snli':
+        label_list = ['entailment','neutral','contradiction'] 
+    elif dataset == 'semeval2017':
+        label_list = ['Good','PotentiallyUseful','Bad']
+        write_list = ['true', 'false', 'false']
 
-    char_embed = 15
-    char_hidden = 100
-    max_grad = 10
-    grad_noise = 0.01
 
 # sent_emb:[b,n,d]  sent_mask:[b,n,1]
 def disan(sent_emb, sent_mask, keep_prob):
@@ -132,5 +134,12 @@ class Model(object):
                 self.dropout: 1.0
                }
         logits = sess.run(self.logits, feed_dict = feed)
-        predict_true = np.sum(np.equal(labels, np.argmax(logits, axis=1)))
-        return predict_true
+        predict = np.argmax(logits,1)
+
+        if Config.dataset == 'semeval2017':
+            return_string = ''
+            for i in range(len(labels)):
+                return_string += '_'.join(labels[i].split('_')[:2])+'\t'+labels[i]+'\t0\t'+str(logits[:,0][i])+'\t'+Config.write_list[predict[i]]+'\n'
+            return return_string
+        elif Config.dataset == 'snli':
+            return np.sum(np.equal(labels, predict))
