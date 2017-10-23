@@ -74,7 +74,7 @@ if __name__ == '__main__':
             items = line.split()
             vocab[items[0]]= i
             embedding.append(list(map(float,items[1:])))
-    print('loading embedding:\twords:{}\ttime:{}'.format(len(embedding), time.time()-start_time))
+    print('loading embed:\twords:{}\ttime:{}'.format(len(embedding), time.time()-start_time))
 
     train_data = digitize_data('train')        
     dev_data = digitize_data('dev')
@@ -84,7 +84,7 @@ if __name__ == '__main__':
     tf_config = tf.ConfigProto()
     tf_config.gpu_options.allow_growth = True
 
-    with tf.Session(config = tf_config) as sess, open('data/backup/origin.txt','w')as fo:
+    with tf.Session(config = tf_config) as sess:
         model.build_model()
         for v in tf.trainable_variables():
             print('name:{}\tshape:{}'.format(v.name,v.shape))
@@ -100,11 +100,11 @@ if __name__ == '__main__':
         total_steps = len(train_data)/Config.batch_size
         for step,batch_train in enumerate(batch_trains):
             batch_loss = model.train_batch(sess, batch_train)
-            sys.stdout.write("\rstep:{}\t\t\tloss:{}".format(step, batch_loss))
+            sys.stdout.write("\repoch:{:.5f}\t\t\tloss:{}".format(step/total_steps, batch_loss))
             losses.append(batch_loss)
             display_step = int(total_steps/3) if step<6*total_steps else int(total_steps/6)
             if step % display_step ==0:
-                sys.stdout.write('\rstep:{}\t\taverage_loss:{}\n'.format(step, sum(losses)/len(losses)))
+                sys.stdout.write('\repoch:{:.5f}\t\taverage_loss:{}\n'.format(step/total_steps, sum(losses)/len(losses)))
                 losses = []
                 test_true = dev_true = 0
                 batch_devs = batch_iter(dev_data,Config.batch_size,False,False)
